@@ -31,13 +31,17 @@ class ModelSelector(object):
     def select(self):
         raise NotImplementedError
 
-    def base_model(self, num_states):
+    def base_model(self, num_states, param_X=None, param_lengths=None):
+        if param_X is None:
+            param_X = self.X
+        if param_lengths is None:
+            param_lengths = self.lengths
         # with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         # warnings.filterwarnings("ignore", category=RuntimeWarning)
         try:
             hmm_model = GaussianHMM(n_components=num_states, covariance_type="diag", n_iter=1000,
-                                    random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
+                                    random_state=self.random_state, verbose=False).fit(param_X, param_lengths)
             if self.verbose:
                 print("model created for {} with {} states".format(self.this_word, num_states))
             return hmm_model
@@ -105,4 +109,27 @@ class SelectorCV(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        
+        split_cnt = 3
+        kf = KFold(n_splits=split_cnt)
+        
+        min_logL = float("inf")
+        best_n_components = self.min_n_components
+        
+        for n in range(self.min_n_components, self.max_n_components):
+            try:
+                avg_logL = 0
+                for train_index, test_index in kf.split(self.sequences):
+                    cv_train_param_X, cv_train_param_lengths = combine_sequences(train_index, self.sequences)
+                    model = self.base_model(n, param_X=cv_train_param_X, param_lengths=cv_train_param_lengths)
+                    cv_test_param_X, cv_test_param_lengths = combine_sequences(test_index, self.sequences)
+                    logL = model.score(cv_test_param_X, cv_test_param_lengths)
+                    avg_logL = avg_logL + logL/split_cnt
+                if avg_logL < min_logL:
+                    min_logL = avg_logL
+                    best_n_components = n
+            except:
+                if self.verbose:
+                    print("failure on {} with {} states".format(self.this_word, n))
+                
+        return self.base_model(best_n_components)
