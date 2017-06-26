@@ -79,9 +79,26 @@ class SelectorBIC(ModelSelector):
         :return: GaussianHMM object
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        
+        max_BIC = float("-inf")
+        max_BIC_n = self.max_n_components
+        
+        log_n = math.log(len(self.X))
+        for n in range(self.min_n_components, self.max_n_components):
+            try:
+                p = n
+                model = self.base_model(n)
+                log_l = model.score(self.X, self.lengths)
+                BIC = -2 * log_l + p * log_n
+                if BIC > max_BIC:
+                    max_BIC = BIC
+                    max_BIC_n = n
+            except:
+                if self.verbose:
+                    print("failure on {} with {} states".format(self.this_word, n))
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        return self.base_model(max_BIC_n)
 
 
 class SelectorDIC(ModelSelector):
@@ -92,12 +109,35 @@ class SelectorDIC(ModelSelector):
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.58.6208&rep=rep1&type=pdf
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
     '''
-
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        max_DIC = float("-inf")
+        max_DIC_n = self.max_n_components
+        
+        log_l_sum = 0
+        log_l_dict = {}
+        
+        for n in range(self.min_n_components, self.max_n_components):
+            try:
+                p = n
+                model = self.base_model(n)
+                log_l = model.score(self.X, self.lengths)
+                log_l_sum = log_l_sum + log_l
+                log_l_dict[n] = log_l
+            except:
+                if self.verbose:
+                    print("failure on {} with {} states".format(self.this_word, n))
+            
+        M = self.max_n_components - self.min_n_components
+        for n, log_l in log_l_dict.items():
+            DIC = log_l - (1 / (M - 1)) * (log_l_sum - log_l)
+            if DIC > max_DIC:
+                max_DIC = DIC
+                max_DIC_n = n
+        
+        return self.base_model(max_DIC_n)
 
 
 class SelectorCV(ModelSelector):
@@ -113,8 +153,8 @@ class SelectorCV(ModelSelector):
         split_cnt = 3
         kf = KFold(n_splits=split_cnt)
         
-        min_logL = float("inf")
-        best_n_components = self.min_n_components
+        max_log_l = float("-inf")
+        max_log_l_n = self.min_n_components
         
         for n in range(self.min_n_components, self.max_n_components):
             try:
@@ -125,11 +165,11 @@ class SelectorCV(ModelSelector):
                     cv_test_param_X, cv_test_param_lengths = combine_sequences(test_index, self.sequences)
                     logL = model.score(cv_test_param_X, cv_test_param_lengths)
                     avg_logL = avg_logL + logL/split_cnt
-                if avg_logL < min_logL:
-                    min_logL = avg_logL
-                    best_n_components = n
+                if avg_logL > max_log_l:
+                    max_log_l = avg_logL
+                    max_log_l_n = n
             except:
                 if self.verbose:
                     print("failure on {} with {} states".format(self.this_word, n))
                 
-        return self.base_model(best_n_components)
+        return self.base_model(max_log_l_n)
